@@ -31,25 +31,42 @@ def codeml_action(args):
     workdir = './scratch'
     tmpaln = os.path.join(workdir, "align.fa")
     tmptree = os.path.join(workdir, "tree.nex")
-    
-    # preprocess the alignment file to remove sequences with stop codons
-    with open(args.alignment, "rU") as fhin, open(tmpaln, "w") as fhout:
-        for record in SeqIO.parse(fhin, "fasta"):
-            if not '*' in record.seq.translate():
-                record.id = record.id.replace('/','_')
-                # codeml seems unhappy when sequences have descriptions
-                # maybe it's only certain characters in descriptions?
-                record.description = ""
-                print(record.id)
-                SeqIO.write(record, fhout, "fasta")
 
+    d = dendropy.DataSet.get(
+        path=args.alignment,
+        schema="fasta",
+        label=None,
+        taxon_namespace=None,
+        ignore_unrecognized_keyword_arguments=False,
+        data_type="dna",
+        )
+    d.write(
+        path=tmpaln,
+        schema="phylip",
+        strict=False,
+        spaces_to_underscores=False,
+        force_unique_taxon_labels=False,
+        suppress_missing_taxa=False,
+        ignore_unrecognized_keyword_arguments=False,
+        )
+
+    
+    # # preprocess the alignment file to remove sequences with stop codons
+    # with open(args.alignment, "rU") as fhin, open(tmpaln, "w") as fhout:
+    #     for record in SeqIO.parse(fhin, "fasta"):
+    #         if True or not '*' in record.seq.translate():
+    #             record.id = record.id.replace('/','_')
+    #             # codeml seems unhappy when sequences have descriptions
+    #             # maybe it's only certain characters in descriptions?
+    #             record.description = ""
+    #             print(record.id)
+    #             SeqIO.write(record, fhout, "phylip-relaxed")
+    #         else:
+    #             print("bad record {}".format(record.id))
 
     # convert the newick tree to unrooted nexus format.
-    tree = Phylo.read(args.tree, 'nexus')
-    for t in tree.get_terminals():
-        t.name = t.name.replace('/','_')
-
-    Phylo.write([tree], tmptree, 'newick')
+    tree = dendropy.Tree.get(path=args.tree, schema="nexus")
+    tree.write(path=tmptree, schema='newick')
 
     cml = codeml.Codeml()
     cml.working_dir = "scratch"

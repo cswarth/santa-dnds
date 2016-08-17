@@ -26,89 +26,46 @@ from nestly import Nest
 from nestly.scons import SConsWrap
 from SCons.Script import Environment
 from SCons.Action import ActionFactory
-import SCons.Util
 
-
-# Running commands on the cluster sometimes has the unfortunate side-effect of
-# letting distributed filesystems get out of sync.  A file that is written on
-# the cluster may not be visible on local machines for several seconds.  This
-# doesn't happen all the time, and it can be difficult to demonstrate, but it
-# often occurs when local and cluster commands manipulate the same file in
-# quick succession.  The Wait() action is meant to wait for a file to become
-# locally visible after running a command on the cluster (via srun or salloc).
-#
-# Wait() usage is typically,
-# 	target='output.file'
-# 	env.Command(target, 'source.file',
-#   	        [ "srun some-command <${TARGET}",
-#    			   Wait(target)
-#				])
-#
-# This will cause the execution to pause after running 'some-command' until the target shows up on the local machine.
-# The target will be polled on a 2-second interval, and the command will fail if the target does not show up within about 10 seconds.
-
-
-
-
-def get_paths_str(dest):
-    # If dest is a list, we need to manually call str() on each element
-    if SCons.Util.is_List(dest):
-        elem_strs = []
-        for element in dest:
-            elem_strs.append('"' + str(element) + '"')
-        return '[' + ', '.join(elem_strs) + ']'
-    else:
-        return '"' + str(dest) + '"'
-
-# https://github.com/azatoth/scons/blob/73f996e59902d03ec432cc662252aac5fb72f1f8/src/engine/SCons/Defaults.py 
-def wait_func(dest):
-    SCons.Node.FS.invalidate_node_memos(dest)
-    if not SCons.Util.is_List(dest):
-        dest = [dest]
-    for entry in dest:
-        count = 0
-        limit = 20
-        while not os.path.isfile(entry) or os.stat(entry).st_size == 0:
-            print("waiting for {}...".format(entry))
-            time.sleep(2)
-            count = count + 1
-            if count > limit:
-                print("failing wait for {}...".format(entry))
-                return 1
-    return 0
-
-Wait = ActionFactory(wait_func, lambda dir: 'Wait(%s)' % get_paths_str(dir))
+from sconsutils import Wait
+import sconsutils
 
 environ = os.environ.copy()
 
 env = Environment(ENV=environ)
-env.PrependENVPath('PATH', '../bin')
+env.PrependENVPath('PATH', 'bin')
 env['PRANK']='/home/cwarth/src/matsen/prank/src/prank'
 env['SANTAJAR']= os.path.expanduser('~matsengrp/local/lib/santa.jar')
-env['SANTAJAR']= os.path.expanduser('~/src/matsen/santa-dev/dist/santa.jar')
+env['SANTAJAR']= os.path.expanduser('~/src/matsen/santa-wercker/dist/santa.jar')
 
-env['LONGEVITY'] = 25000	# number of generations to run SANTA simulation.
+env['LONGEVITY'] = 5000	# number of generations to run SANTA simulation.
 
 n = Nest(base_dict={})
 w = SConsWrap(n, 'build', alias_environment=env)
 
+# adding aggregate for running build_graph.py
+w.add_aggregate('resultsList', list)
 
-n.add('mutationrate', ['2.5E-5'])
 
-n.add('selection_model', ['noselection', 'purifying',  'frequency'])
-n.add('indel_model', ['noindel', 'indel'])
+w.add('mutationrate', ['2.5E-5'], create_dir=False)
+
+w.add('selection_model', [ 'purifying' ]) # 'noselection', 'frequency'
+w.add('indel_model', ['noindel'], create_dir=False)
+#w.add('lowfitness', [0.9, 0.7, 0.4, 0.25, 0.1], label_func=lambda n: 'fit_'+str(n))
+w.add('lowfitness', [0.9, 0.1], label_func=lambda n: 'fit_'+str(n))
 
 
 @w.add_target_with_env(env)
 def santa_config(env, outdir, c):
     return env.Command(os.path.join(outdir, "santa_config.xml"),
-                       ['templates/santa_{selection_model}_{indel_model}.template'.format(**c), 'templates/HIV1C2C3.fasta'],
+                       ['templates/santa_${selection_model}_${indel_model}.template', 'templates/HIV1C2C3.fasta'],
                        "mksanta.py  -p patient1 ${SOURCES}   >${TARGET}")[0]
 
 
-n.add('population', [1000], label_func=lambda p: 'pop='+str(p))
 
-n.add('replicates', range(10), label_func=lambda r: 'rep='+str(r))
+w.add('population', [1000], label_func=lambda p: 'pop_'+str(p), create_dir=False)
+
+w.add('replicates', range(5), label_func=lambda r: 'rep_'+str(r))
 
 @w.add_target_with_env(env)
 def santa_lineage(env, outdir, c):
@@ -117,13 +74,13 @@ def santa_lineage(env, outdir, c):
                        [  # santa will produce output files in its current directory.
                           # so need to change to output directory before execution.
                           Copy('${OUTDIR}/santa_config.xml', '${SOURCES[0]}'),
-                          'cd ${OUTDIR} && srun --time=30 --output=srun.log java -mx512m -jar ${SOURCES[1]} -mutationrate=${mutationrate} -population=${population} -longevity=${LONGEVITY} santa_config.xml',
+                          'cd ${OUTDIR} && srun java -mx512m -jar ${SOURCES[1]} -mutationrate=${mutationrate} -population=${population} -longevity=${LONGEVITY} -lowfitness=${lowfitness} santa_config.xml',
                           Copy('${TARGET}', '${OUTDIR}/santa_out.fa')
                        ])[0]
 
-n.add('timepoint', [1000, 5000], label_func=lambda p: 'gen='+str(p))
+w.add('timepoint', [5000], label_func=lambda p: 'gen:'+str(p), create_dir=False)
 
-n.add('nseqs', [10], label_func=lambda n: 'N='+str(n))
+w.add('nseqs', [10], label_func=lambda n: 'N:'+str(n), create_dir=False)
 
 ## Extract the founder sequence from the santa config file into a FASTA file.
 ## This makes it easier for the distance.py script to grab it for comparison.
@@ -136,47 +93,34 @@ def sample(env, outdir, c):
     return env.Command(target,
                 [ c['santa_lineage'] ],
                 [
-                    samplecmd.format(c['nseqs'], c['timepoint'], '1M|XXX|XXX|2011/11/10') + ' >${TARGET}',
-                    samplecmd.format(c['nseqs'], str(c['timepoint']+500), '6M|XXX|XXX|2012/03/02') + ' >>${TARGET}',
-#                    r'fasta_sample.py --fasta-file ${SOURCES[0]} --n-sequences 10 --pattern "_${timepoint}_" | seqmagick convert --pattern-replace "^([^\|]*)\|.*$" "\1|1M|05WG|NFLG|2011/11/10" - - >${TARGET}',
-#                    r'fasta_sample.py --fasta-file ${SOURCES[0]} --n-sequences 12 --pattern "_' + str(c['timepoint']+500) + r'_" | seqmagick convert --pattern-replace "^([^\|]*)\|.*$" "\1|6M|08RH|RH|2012/03/02" - - >>${TARGET}'
+                    # Append fake dates to the sequence ids..
+                    # The sequence ids will be parsed when building the beast config file and tip dates will be created to matched the dates on the sequences.
+
+                    samplecmd.format(c['nseqs'], c['timepoint'], '1M|XXX|XXX|2011_11_10') + ' >${TARGET}',
                 ])[0]
 
 
 # align sample
 @w.add_target_with_env(env)
-def multiple_alignment(env, outdir, c):
-    #founder = os.path.join(outdir, 'sample_dedup_aln.fa'.format(**c))
-    target = '{}_aln.fa'.format(os.path.splitext(str(c['sample']))[0])
-    cmd = 'mafft --quiet --auto ${SOURCE} >${TARGET}'
+def align(env, outdir, c):
+    return env.Command(
+        os.path.join(outdir, 'sample_aln.fa'),
+        [ c['sample'] ],
+        'mafft --quiet --auto ${SOURCE} >${TARGET}')[0]
 
-    return env.Command(target,
-                [ c['sample'] ],
-                [ cmd ])
-
-
-# For each data set, we evaluated both strict and relaxed uncorrelated lognormal clock models.
-# These are captured in the different template files used to build the BEAST configs.
-#
-# See: McCloskey, R. M., Liang, R. H., Harrigan, P. R., Brumme, Z. L.,
-# & Poon, A. F. Y. (2014). An Evaluation of Phylogenetic Methods for
-# Reconstructing Transmitted HIV Variants using Longitudinal Clonal
-# HIV Sequence Data. Journal of Virology, 88(11),
-# 6181–94. doi:10.1128/JVI.00483-14
-
-n.add('clock_model', ['relaxed', 'strict'])	
-
+@w.add_target_with_env(env)
+def fasta2phylip(env, outdir, c):
+    return env.Command( os.path.join(outdir, 'sample_aln.phylip'),
+                        c['align'],
+                        'fasta2phylip.py ${SOURCE} ${TARGET}'
+                        )[0]
 
 # create the BEAST config file from sequences extracted from two patient simulations
 @w.add_target_with_env(env)
 def config_beast(env, outdir, c):
-    target = os.path.join(outdir, 'beast_in.xml')
-        
-    cmd = ("mkbeast_rv217.py  --template  ${SOURCES[0]} ${SOURCES[1]}  >${TARGET}")
-
-    return env.Command(target,
-                       [ '../templates/beast_{}.template'.format(c['clock_model']), c['multiple_alignment']],
-                       cmd)[0]
+    return env.Command(os.path.join(outdir, 'beast_in.xml'),
+                       [ 'templates/beast_strict.template', c['align']],
+                       "mkbeast_rv217.py  --template  ${SOURCES[0]} ${SOURCES[1]}  >${TARGET}")[0]
 
 
 @w.add_target_with_env(env)
@@ -184,20 +128,57 @@ def runbeast(env, outdir, c):
     target = [ os.path.join(outdir, 'ancestralSequences.log'),
                os.path.join(outdir, 'beastout.log'),
                os.path.join(outdir, 'beastout.trees'),
-               os.path.join(outdir, 'beastcmd.log') ]
+               os.path.join(outdir, 'beastcmd.log'),
+               os.path.join(outdir, 'srun.log')
+                   ]
     return env.Command(target,
                        c['config_beast'],
                        # [ "srun --chdir={} --output=srun.log beast -overwrite -beagle {} >${{TARGETS[3]}} 2>&1".format(outdir, os.path.abspath(str(c['config_beast']))),
-                       [ "srun --time=30 --chdir={outdir} --output={outdir}/beastcmd.log beast -overwrite -beagle beast_in.xml >{outdir}/srun.log 2>&1".format(outdir=outdir),
+                       [ "srun --time=30 --chdir=${TARGET.dir} --output=${TARGETS[3]} beast -overwrite -beagle ${SOURCE.file} >${TARGETS[4]} 2>&1",
                          Wait(target)
                        ])
 
 @w.add_target_with_env(env)
 def mcc(env, outdir, c):
-    return env.Command(os.path.join(outdir, 'mcc.tree'),
+    return env.Command(os.path.join(outdir, 'mcc.nexus'),
                         c['runbeast'][2],
                        'treeannotator ${SOURCES} >${TARGET} ')
 
+@w.add_target_with_env(env)
+def nexus2newick(env, outdir, c):
+    return env.Command(os.path.join(outdir, 'mcc.newick'),
+                        c['mcc'],
+                       'nexus2newick.py ${SOURCES} ${TARGET} ')
+
+@w.add_target_with_env(env)
+def config(env, outdir, c):
+    return env.Command(os.path.join(outdir, 'codeml.ctl'),
+                        [  'codeml.ctl', c['nexus2newick'], c['fasta2phylip']],
+                        [
+                            "sed 's#seqfile.txt#${SOURCES[2].file}#g' <${SOURCES[0]} >${TARGET}"
+                        ])[0]
 
     
+@w.add_target_with_env(env)
+def results(env, outdir, c):
+    return env.Command(os.path.join(outdir, 'results.txt'),
+                       c['config'],
+                       'cd ${SOURCE.dir} && codeml ${SOURCE.file}'
+                       )[0]
+
+@w.add_target_with_env(env)
+def aggregate(env, outdir, c):
+    c['resultsList'].append(c['results'])
+
+w.pop('mutationrate')
+
+@w.add_target_with_env(env)
+def collect(env, outdir, c):
+    return env.Command(os.path.join(outdir, 'output.jpg'),
+                       c['resultsList'],
+                       'parseresults.py -o ${TARGET} ${SOURCES}'
+                       )
+
+
+
 
