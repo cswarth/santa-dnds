@@ -38,7 +38,7 @@ env['PRANK']='/home/cwarth/src/matsen/prank/src/prank'
 env['SANTAJAR']= os.path.expanduser('~matsengrp/local/lib/santa.jar')
 env['SANTAJAR']= os.path.expanduser('~/src/matsen/santa-wercker/dist/santa.jar')
 
-env['LONGEVITY'] = 5000	# number of generations to run SANTA simulation.
+env['LONGEVITY'] = 20000	# number of generations to run SANTA simulation.
 
 n = Nest(base_dict={})
 w = SConsWrap(n, 'build', alias_environment=env)
@@ -46,24 +46,28 @@ w = SConsWrap(n, 'build', alias_environment=env)
 # adding aggregate for running build_graph.py
 w.add_aggregate('resultsList', list)
 
-
 w.add('mutationrate', ['2.5E-5'], create_dir=False)
 
-w.add('selection_model', [ 'purifying' ]) # 'noselection', 'frequency'
+w.add('selection_model', [ 'noselection', 'purifying', 'purifyingvalues' ]) # 'purifying' 'noselection', 'frequency'
 w.add('indel_model', ['noindel'], create_dir=False)
-#w.add('lowfitness', [0.9, 0.7, 0.4, 0.25, 0.1], label_func=lambda n: 'fit_'+str(n))
-w.add('lowfitness', [0.9, 0.1], label_func=lambda n: 'fit_'+str(n))
+
+w.add('nseqs', [10], label_func=lambda n: 'N_'+str(n), create_dir=False)
+
+w.add('population', [1000], label_func=lambda p: 'pop_'+str(p), create_dir=False)
+
+#w.add('fitness', [0.9, 0.7, 0.4, 0.25, 0.1], label_func=lambda n: 'fit_'+str(n))
+w.add('fitness', [0.0104, 0.010], label_func=lambda n: 'fit_'+str(n))
 
 
 @w.add_target_with_env(env)
 def santa_config(env, outdir, c):
-    return env.Command(os.path.join(outdir, "santa_config.xml"),
-                       ['templates/santa_${selection_model}_${indel_model}.template', 'templates/HIV1C2C3.fasta'],
-                       "mksanta.py  -p patient1 ${SOURCES}   >${TARGET}")[0]
+    return env.Command(
+        os.path.join(outdir, "santa_config.xml"),
+		['templates/santa_${selection_model}_${indel_model}.template', 'templates/HIV1C2C3.fasta'],
+		"mksanta.py  -p patient1 ${SOURCES}   >${TARGET}"
+        )[0]
 
 
-
-w.add('population', [1000], label_func=lambda p: 'pop_'+str(p), create_dir=False)
 
 w.add('replicates', range(5), label_func=lambda r: 'rep_'+str(r))
 
@@ -74,30 +78,27 @@ def santa_lineage(env, outdir, c):
                        [  # santa will produce output files in its current directory.
                           # so need to change to output directory before execution.
                           Copy('${OUTDIR}/santa_config.xml', '${SOURCES[0]}'),
-                          'cd ${OUTDIR} && srun java -mx512m -jar ${SOURCES[1]} -mutationrate=${mutationrate} -population=${population} -longevity=${LONGEVITY} -lowfitness=${lowfitness} santa_config.xml',
+                          'cd ${OUTDIR} && srun java -mx512m -jar ${SOURCES[1]} -mutationrate=${mutationrate} -population=${population} -longevity=${LONGEVITY} -fitness=${fitness} santa_config.xml',
                           Copy('${TARGET}', '${OUTDIR}/santa_out.fa')
                        ])[0]
 
-w.add('timepoint', [5000], label_func=lambda p: 'gen:'+str(p), create_dir=False)
-
-w.add('nseqs', [10], label_func=lambda n: 'N:'+str(n), create_dir=False)
+w.add('timepoint', [5000, 20000], label_func=lambda p: 'gen_'+str(p))
 
 ## Extract the founder sequence from the santa config file into a FASTA file.
 ## This makes it easier for the distance.py script to grab it for comparison.
 @w.add_target_with_env(env)
 def sample(env, outdir, c):
-    target = os.path.join(outdir, 'sample.fa'.format(**c))
-    fasta_sample = r'fasta_sample.py --fasta-file ${{SOURCES[0]}} --n-sequences {} --pattern "_{}_"'
-    mogrify = r'seqmagick convert --pattern-replace "^([^\|]*)\|.*$" "\1|{}" - -'
-    samplecmd = fasta_sample + '|' + mogrify 
-    return env.Command(target,
-                [ c['santa_lineage'] ],
-                [
-                    # Append fake dates to the sequence ids..
-                    # The sequence ids will be parsed when building the beast config file and tip dates will be created to matched the dates on the sequences.
-
-                    samplecmd.format(c['nseqs'], c['timepoint'], '1M|XXX|XXX|2011_11_10') + ' >${TARGET}',
-                ])[0]
+    return env.Command(
+        os.path.join(outdir, 'sample.fa'),
+        [ c['santa_lineage'] ],
+        [
+            # Append fake dates to the sequence ids..
+            # The sequence ids will be parsed when building the beast config file and tip dates will be created to matched the dates on the sequences.
+			'''
+			fasta_sample.py --fasta-file ${SOURCES[0]} --n-sequences ${nseqs} --pattern '_${timepoint}_' | \
+			seqmagick convert --pattern-replace '^([^\|]*)\|.*$' '\\1|1M|XXX|XXX|2011_11_10' - - >${TARGET}
+			'''
+        ])[0]
 
 
 # align sample
@@ -125,24 +126,22 @@ def config_beast(env, outdir, c):
 
 @w.add_target_with_env(env)
 def runbeast(env, outdir, c):
-    target = [ os.path.join(outdir, 'ancestralSequences.log'),
-               os.path.join(outdir, 'beastout.log'),
+    target = [ os.path.join(outdir, 'beastout.log'),
                os.path.join(outdir, 'beastout.trees'),
                os.path.join(outdir, 'beastcmd.log'),
                os.path.join(outdir, 'srun.log')
                    ]
     return env.Command(target,
                        c['config_beast'],
-                       # [ "srun --chdir={} --output=srun.log beast -overwrite -beagle {} >${{TARGETS[3]}} 2>&1".format(outdir, os.path.abspath(str(c['config_beast']))),
-                       [ "srun --time=30 --chdir=${TARGET.dir} --output=${TARGETS[3]} beast -overwrite -beagle ${SOURCE.file} >${TARGETS[4]} 2>&1",
+                       [ "srun --time=30 --chdir=${OUTDIR} --output=${TARGETS[2]} beast -overwrite -beagle ${SOURCE.file} >${TARGETS[3]} 2>&1",
                          Wait(target)
-                       ])
+                       ])[1]
 
 @w.add_target_with_env(env)
 def mcc(env, outdir, c):
     return env.Command(os.path.join(outdir, 'mcc.nexus'),
-                        c['runbeast'][2],
-                       'treeannotator ${SOURCES} >${TARGET} ')
+                        c['runbeast'],
+                       'treeannotator ${SOURCE} >${TARGET} ')
 
 @w.add_target_with_env(env)
 def nexus2newick(env, outdir, c):
@@ -174,7 +173,7 @@ w.pop('mutationrate')
 
 @w.add_target_with_env(env)
 def collect(env, outdir, c):
-    return env.Command(os.path.join(outdir, 'output.jpg'),
+    return env.Command(os.path.join(outdir, 'results.csv'),
                        c['resultsList'],
                        'parseresults.py -o ${TARGET} ${SOURCES}'
                        )

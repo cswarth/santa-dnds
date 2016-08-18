@@ -26,13 +26,13 @@
 		<fitnessFunction>
 		  <purifyingFitness>
 		    <feature>C2C3</feature>
-		    <sites>1-3,80-82</sites>
+		    <sites>1-156</sites>
 		    <rank>
 		      <order>chemical</order>
 		      <breakTies>random</breakTies>
 		    </rank>
 		    <fitness>
-		      <lowFitness>$lowfitness</lowFitness>
+		      <lowFitness>$fitness</lowFitness>
 		      <minimumFitness>0.1</minimumFitness>
 		    </fitness>
 		  </purifyingFitness>

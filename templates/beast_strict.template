@@ -304,22 +304,6 @@
       <posterior idref="posterior"/>
     </logTree>
 
-    <!-- Ancestral state reconstruction -->
-
-    <!-- Infer ancestral state at the mrca of all patients other than the -->
-    <!-- first. -->
-
-    
-    <log id="traitFileLog" logEvery="400" fileName="ancestralSequences.log">
-      <ancestralTrait name="trait" traitName="states">
-	<treeModel idref="treeModel"/>
-	<ancestralTreeLikelihood idref="treeLikelihood"/>
-	<mrca>
-	  <taxa idref="taxa(patients)"/>
-	</mrca>
-      </ancestralTrait>
-    </log>
-
   </mcmc>
   <report>
     <property name="timer">
