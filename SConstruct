@@ -17,6 +17,7 @@ have here.  We will move forward with just the strict clock.
 
 
 import os
+import sys
 import os.path
 import glob
 import tempfile
@@ -29,6 +30,7 @@ from SCons.Action import ActionFactory
 
 from sconsutils import Wait
 import sconsutils
+import subprocess
 
 environ = os.environ.copy()
 
@@ -40,6 +42,20 @@ env['SANTAJAR']= os.path.expanduser('~/src/matsen/santa-wercker/dist/santa.jar')
 
 env['LONGEVITY'] = 20000	# number of generations to run SANTA simulation.
 
+def cmd_exists(cmd):
+    return subprocess.call("type " + cmd, shell=True, 
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
+
+# check if `BEAST` is available, but only if we aren't in a dry-run.
+if not GetOption('no_exec') and not cmd_exists('beast'):
+    msg = '''
+    `beast` not found on PATH
+     Consider using,
+        module load BEAST/1.8.2
+    '''
+    print(msg)
+    sys.exit(1)
+
 n = Nest(base_dict={})
 w = SConsWrap(n, 'build', alias_environment=env)
 
@@ -48,22 +64,55 @@ w.add_aggregate('resultsList', list)
 
 w.add('mutationrate', ['2.5E-5'], create_dir=False)
 
-w.add('selection_model', [ 'noselection', 'purifying', 'purifyingvalues' ]) # 'purifying' 'noselection', 'frequency'
 w.add('indel_model', ['noindel'], create_dir=False)
 
 w.add('nseqs', [10], label_func=lambda n: 'N_'+str(n), create_dir=False)
 
 w.add('population', [1000], label_func=lambda p: 'pop_'+str(p), create_dir=False)
 
-#w.add('fitness', [0.9, 0.7, 0.4, 0.25, 0.1], label_func=lambda n: 'fit_'+str(n))
-w.add('fitness', [0.0104, 0.010], label_func=lambda n: 'fit_'+str(n))
+w.add('selection_model', [ 'noselection', 'purifyingchem', 'empiricalvalues', 'empiricalvalues_homoresidue' ]) # 'purifying' 'noselection', 'frequency'
+
+def fitness_range(c): # takes control dictionary
+    # choose selection parameters based on selection_model value.
+    # some selection models require a different range of fitness values.
+    # some also vary the starting sequence.
+
+    return {
+        'noselection': [0.0104, 0.010],
+        'purifyingchem': [0.01, .5, 1.0],
+        'empiricalvalues': [0.02, 0.010],
+        'empiricalvalues_homoresidue': [0.0105, 0.010]
+    }[c['selection_model']]
+
+
+w.add('fitness', fitness_range, label_func=lambda n: 'fit_'+str(n))
+
+def sequence_files(c): # takes control dictionary
+    return {
+        'noselection': ['templates/HIV1C2C3.fasta'],
+        'purifyingchem': ['templates/HIV1C2C3.fasta'],
+        'empiricalvalues': ['templates/HIV1C2C3.fasta'],
+        'empiricalvalues_homoresidue': ['templates/homoresidue.fasta']
+    }[c['selection_model']]
+
+w.add('sequence', sequence_files, create_dir=False)
+
+def template_file(c): # takes control dictionary
+    return {
+        'noselection': ['templates/santa_${selection_model}_${indel_model}.template'],
+        'purifyingchem': ['templates/santa_${selection_model}_${indel_model}.template'],
+        'empiricalvalues': ['templates/santa_${selection_model}_${indel_model}.template'],
+        'empiricalvalues_homoresidue': ['templates/santa_empiricalvalues_noindel.template']
+    }[c['selection_model']]
+
+w.add('template', template_file, create_dir=False)
 
 
 @w.add_target_with_env(env)
 def santa_config(env, outdir, c):
     return env.Command(
         os.path.join(outdir, "santa_config.xml"),
-		['templates/santa_${selection_model}_${indel_model}.template', 'templates/HIV1C2C3.fasta'],
+		['${template}', '${sequence}'],
 		"mksanta.py  -p patient1 ${SOURCES}   >${TARGET}"
         )[0]
 

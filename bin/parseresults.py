@@ -14,7 +14,7 @@ import argparse
 import pandas as pd
 
 # A named tuple holding dN/dS ratio for a single pair of sequences
-OmegaPairRecord = collections.namedtuple('OmegaPairRecord', 'id1 id2 lnl dNdS dN dS')
+OmegaPairRecord = collections.namedtuple('OmegaPairRecord', 'path id1 id2 lnl dNdS dN dS')
 
 
 # generator function to position filehandle for reading pairwise dN/dS ratios
@@ -58,7 +58,7 @@ def next_record(fhandle):
             fhandle.next()
             fhandle.next()
             dnds = dndspat.match(fhandle.next())
-            yield Record( ids.group('id1'), ids.group('id2'),
+            yield Record( fhandle.name, ids.group('id1'), ids.group('id2'),
                           float(lnl.group('lnl')),
                           float(dnds.group('dnds')), float(dnds.group('dN')), float(dnds.group('dS')))
 
@@ -76,7 +76,7 @@ def extract_omega(fhandle):
     return None
 
 # A named tuple holding dN/dS ratio for a whole tree.
-OmegaTreeRecord = collections.namedtuple('OmegaTreeRecord', 'model fitness generation replicate omega')
+OmegaTreeRecord = collections.namedtuple('OmegaTreeRecord', 'path model fitness generation replicate omega')
 
 
 # generator function that yields one OmegaTreeRecord for every result file parsed.
@@ -93,7 +93,7 @@ def parse_results(files, verbose=False):
         tokens = [re.sub(r"[^_]*_", '', t) for t in path.split(os.path.sep)]
         with open(path, 'r') as fh:
             omega = extract_omega(fh)
-            yield OmegaTreeRecord( tokens[1], float(tokens[2]), int(tokens[4]), int(tokens[3]), omega)
+            yield OmegaTreeRecord( path, tokens[1], float(tokens[2]), int(tokens[4]), int(tokens[3]), omega)
         
 def main(args=sys.argv[1:]):
     '''
