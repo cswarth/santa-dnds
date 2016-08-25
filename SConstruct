@@ -19,14 +19,11 @@ have here.  We will move forward with just the strict clock.
 import os
 import sys
 import os.path
-import glob
-import tempfile
-import time
+import numpy as np
 
 from nestly import Nest
 from nestly.scons import SConsWrap
 from SCons.Script import Environment
-from SCons.Action import ActionFactory
 
 from sconsutils import Wait
 import sconsutils
@@ -70,7 +67,7 @@ w.add('nseqs', [10], label_func=lambda n: 'N_'+str(n), create_dir=False)
 
 w.add('population', [1000], label_func=lambda p: 'pop_'+str(p), create_dir=False)
 
-w.add('selection_model', [ 'noselection', 'purifyingchem', 'empiricalvalues', 'empiricalvalues_homoresidue' ]) # 'purifying' 'noselection', 'frequency'
+w.add('selection_model', ['empiricalvalues_homoresidue', 'noselection', 'purifyingchem', 'empiricalvalues']) 
 
 def fitness_range(c): # takes control dictionary
     # choose selection parameters based on selection_model value.
@@ -78,10 +75,10 @@ def fitness_range(c): # takes control dictionary
     # some also vary the starting sequence.
 
     return {
-        'noselection': [0.0104, 0.010],
-        'purifyingchem': [0.01, .5, 1.0],
-        'empiricalvalues': [0.02, 0.010],
-        'empiricalvalues_homoresidue': [0.0105, 0.010]
+        'noselection': np.linspace(0.0100, 0.02,3),
+        'purifyingchem': np.linspace(0.0100, 1, 3),
+        'empiricalvalues': np.linspace(0.0100, 0.02, 3),
+        'empiricalvalues_homoresidue': np.linspace(0.0100, 0.0105, 3)
     }[c['selection_model']]
 
 
@@ -131,7 +128,7 @@ def santa_lineage(env, outdir, c):
                           Copy('${TARGET}', '${OUTDIR}/santa_out.fa')
                        ])[0]
 
-w.add('timepoint', [5000, 20000], label_func=lambda p: 'gen_'+str(p))
+w.add('timepoint', [500, 5000, 20000], label_func=lambda p: 'gen_'+str(p))
 
 ## Extract the founder sequence from the santa config file into a FASTA file.
 ## This makes it easier for the distance.py script to grab it for comparison.
@@ -150,18 +147,18 @@ def sample(env, outdir, c):
         ])[0]
 
 
-# align sample
-@w.add_target_with_env(env)
-def align(env, outdir, c):
-    return env.Command(
-        os.path.join(outdir, 'sample_aln.fa'),
-        [ c['sample'] ],
-        'mafft --quiet --auto ${SOURCE} >${TARGET}')[0]
+# # align sample
+# @w.add_target_with_env(env)
+# def align(env, outdir, c):
+#     return env.Command(
+#         os.path.join(outdir, 'sample_aln.fa'),
+#         [ c['sample'] ],
+#         'mafft --quiet --auto ${SOURCE} >${TARGET}')[0]
 
 @w.add_target_with_env(env)
 def fasta2phylip(env, outdir, c):
     return env.Command( os.path.join(outdir, 'sample_aln.phylip'),
-                        c['align'],
+                        c['sample'],
                         'fasta2phylip.py ${SOURCE} ${TARGET}'
                         )[0]
 
@@ -169,7 +166,7 @@ def fasta2phylip(env, outdir, c):
 @w.add_target_with_env(env)
 def config_beast(env, outdir, c):
     return env.Command(os.path.join(outdir, 'beast_in.xml'),
-                       [ 'templates/beast_strict.template', c['align']],
+                       [ 'templates/beast_strict.template', c['sample']],
                        "mkbeast_rv217.py  --template  ${SOURCES[0]} ${SOURCES[1]}  >${TARGET}")[0]
 
 

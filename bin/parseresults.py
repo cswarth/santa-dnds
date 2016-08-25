@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 '''
 
+Parse output of codeml to find dN/dS ratio for whole tree.
+
+$ bin/parseresults.py -o build/results.csv $(find build -name results.txt)
 
 '''
 from __future__ import print_function
