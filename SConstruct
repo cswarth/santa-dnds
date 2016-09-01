@@ -33,7 +33,6 @@ environ = os.environ.copy()
 
 env = Environment(ENV=environ)
 env.PrependENVPath('PATH', 'bin')
-env['PRANK']='/home/cwarth/src/matsen/prank/src/prank'
 env['SANTAJAR']= os.path.expanduser('~matsengrp/local/lib/santa.jar')
 env['SANTAJAR']= os.path.expanduser('~/src/matsen/santa-wercker/dist/santa.jar')
 
@@ -63,7 +62,7 @@ w.add('mutationrate', ['2.5E-5'], create_dir=False)
 
 w.add('indel_model', ['noindel'], create_dir=False)
 
-w.add('nseqs', [10], label_func=lambda n: 'N_'+str(n), create_dir=False)
+w.add('nseqs', [100], label_func=lambda n: 'N_'+str(n), create_dir=False)
 
 w.add('population', [1000], label_func=lambda p: 'pop_'+str(p), create_dir=False)
 
@@ -124,14 +123,12 @@ def santa_lineage(env, outdir, c):
                        [  # santa will produce output files in its current directory.
                           # so need to change to output directory before execution.
                           Copy('${OUTDIR}/santa_config.xml', '${SOURCES[0]}'),
-                          'cd ${OUTDIR} && srun java -mx512m -jar ${SOURCES[1]} -mutationrate=${mutationrate} -population=${population} -longevity=${LONGEVITY} -fitness=${fitness} santa_config.xml',
+                          'srun --time=30 --chdir=${OUTDIR} java -mx512m -jar ${SOURCES[1]} -mutationrate=${mutationrate} -population=${population} -longevity=${LONGEVITY} -fitness=${fitness} santa_config.xml',
                           Copy('${TARGET}', '${OUTDIR}/santa_out.fa')
                        ])[0]
 
 w.add('timepoint', [500, 5000, 20000], label_func=lambda p: 'gen_'+str(p))
 
-## Extract the founder sequence from the santa config file into a FASTA file.
-## This makes it easier for the distance.py script to grab it for comparison.
 @w.add_target_with_env(env)
 def sample(env, outdir, c):
     return env.Command(
@@ -147,6 +144,17 @@ def sample(env, outdir, c):
         ])[0]
 
 
+# deduplicate sample
+@w.add_target_with_env(env)
+def dedup(env, outdir, c):
+    return env.Command(
+        os.path.join(outdir, 'sample_dedup.fa'),
+        [ c['sample'] ],
+        [
+        'seqmagick convert --deduplicate-sequences ${SOURCES} ${TARGET}',
+        'seqmagick info ${SOURCES} ${TARGET}'
+        ])[0]
+
 # # align sample
 # @w.add_target_with_env(env)
 # def align(env, outdir, c):
@@ -158,7 +166,7 @@ def sample(env, outdir, c):
 @w.add_target_with_env(env)
 def fasta2phylip(env, outdir, c):
     return env.Command( os.path.join(outdir, 'sample_aln.phylip'),
-                        c['sample'],
+                        c['dedup'],
                         'fasta2phylip.py ${SOURCE} ${TARGET}'
                         )[0]
 
@@ -166,7 +174,7 @@ def fasta2phylip(env, outdir, c):
 @w.add_target_with_env(env)
 def config_beast(env, outdir, c):
     return env.Command(os.path.join(outdir, 'beast_in.xml'),
-                       [ 'templates/beast_strict.template', c['sample']],
+                       [ 'templates/beast_strict.template', c['dedup']],
                        "mkbeast_rv217.py  --template  ${SOURCES[0]} ${SOURCES[1]}  >${TARGET}")[0]
 
 
@@ -208,7 +216,7 @@ def config(env, outdir, c):
 def results(env, outdir, c):
     return env.Command(os.path.join(outdir, 'results.txt'),
                        c['config'],
-                       'cd ${SOURCE.dir} && codeml ${SOURCE.file}'
+                       'srun --time=30 --chdir=${OUTDIR} codeml ${SOURCE.file}'
                        )[0]
 
 @w.add_target_with_env(env)
