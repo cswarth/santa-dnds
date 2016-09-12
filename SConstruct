@@ -117,7 +117,7 @@ def santa_config(env, outdir, c):
 w.add('replicates', range(5), label_func=lambda r: 'rep_'+str(r))
 
 @w.add_target_with_env(env)
-def santa_lineage(env, outdir, c):
+def lineage(env, outdir, c):
     return env.Command(os.path.join(outdir, "donorlineage.fa"),
                        [ c['santa_config'], env['SANTAJAR'] ],
                        [  # santa will produce output files in its current directory.
@@ -127,13 +127,26 @@ def santa_lineage(env, outdir, c):
                           Copy('${TARGET}', '${OUTDIR}/santa_out.fa')
                        ])[0]
 
+
+@w.add_target_with_env(env)
+def nostops(env, outdir, c):
+    return env.Command(os.path.join(outdir, "lineage_nostop.fa"),
+                       [ c['lineage'] ],
+                       [
+                           'filter_stop.py ${SOURCE} ${TARGET}'
+                       ])[0]
+
+
+
+
+
 w.add('timepoint', [500, 5000, 20000], label_func=lambda p: 'gen_'+str(p))
 
 @w.add_target_with_env(env)
 def sample(env, outdir, c):
     return env.Command(
         os.path.join(outdir, 'sample.fa'),
-        [ c['santa_lineage'] ],
+        [ c['nostops'] ],
         [
             # Append fake dates to the sequence ids..
             # The sequence ids will be parsed when building the beast config file and tip dates will be created to matched the dates on the sequences.

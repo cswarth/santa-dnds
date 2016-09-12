@@ -115,7 +115,7 @@ def main(args=sys.argv[1:]):
 
     parser.add_argument('-o', '--output', default=None,
                             help='name of output graph file')
-    parser.add_argument('-v', '--verbose', default=None,
+    parser.add_argument('-v', '--verbose', action='store_true', default=False,
                             help='verbose output')
     parser.add_argument('results', nargs='+', help='result files', type=existing_file)
     a = parser.parse_args()

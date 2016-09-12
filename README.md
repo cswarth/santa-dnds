@@ -27,6 +27,9 @@ directories under `build/`.  Aggregated statistics are left in
 `build/results.csv`.  Those results can be plotted with
 `plot_results.R`
 
+# Results
+
+![Fitness plots](figures/fitness_plots.png)
 
 # Methodology
 
