@@ -15,6 +15,7 @@ import sys
 import collections
 import argparse
 import pandas as pd
+from Bio import SeqIO
 
 # A named tuple holding dN/dS ratio for a single pair of sequences
 OmegaPairRecord = collections.namedtuple('OmegaPairRecord', 'path id1 id2 lnl dNdS dN dS')
@@ -79,24 +80,30 @@ def extract_omega(fhandle):
     return None
 
 # A named tuple holding dN/dS ratio for a whole tree.
-OmegaTreeRecord = collections.namedtuple('OmegaTreeRecord', 'path model fitness generation replicate omega')
+OmegaRecord = collections.namedtuple('OmegaRecord', 'path mut model fitness generation replicate omega count')
 
 
 # generator function that yields one OmegaTreeRecord for every result file parsed.
 # pass it a list (or generator) of result path names and get back a stream of OmegaTreeRecord tuples
 def parse_results(files, verbose=False):
+    pat = re.compile(r'(?P<path>[^/]*/[^_]*_(?P<mut>[^/]*)/(?P<model>[^/]*)/[^_]*_(?P<fitness>[^/]*)/[^_]*_(?P<replicate>[^/]*)/[^_]*_(?P<generation>[^/]*)/.*)')
     for path in files:
         if verbose:
             print("parsing {}".format(path))
+        with open(path, 'r') as fh:
+            omega = extract_omega(fh)
+        with open(os.path.join(os.path.dirname(path), 'sample_dedup.fa'), 'r') as fh:
+            records = list(SeqIO.parse(fh, "fasta"))
+            count = len(records)
+
         # parse the path to extract pertinant information.
         #
         # some path components look like "var_value", e.g. "gen_20" or "fit_0.100",
         # where var is a string name and value is an integer or float.
         # strip off the first part and retain the numeric part.
-        tokens = [re.sub(r"[^_]*_", '', t) for t in path.split(os.path.sep)]
-        with open(path, 'r') as fh:
-            omega = extract_omega(fh)
-            yield OmegaTreeRecord( path, tokens[1], float(tokens[2]), int(tokens[4]), int(tokens[3]), omega)
+        m = pat.match(path)
+        if m:
+            yield OmegaRecord(omega=omega, count=count, **m.groupdict())
         
 def main(args=sys.argv[1:]):
     '''

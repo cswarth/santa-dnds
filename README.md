@@ -124,5 +124,107 @@ genomethat entrely consisting of codons that code for Lysine, e.g.
 
 ```
 
+## current status (Sept 2016)
+
+PLots are available (Where?)
+plots can be generated (How?)
+
+Epirical homoResidue plot looks strange, with a bunc of wildly
+inflated dn/ds ratios
+
+
+Whay is that?  Is paml crashing?
+if so, why?
+
+Trying to build `$ scons build/empiricalvalues_homoresidue/fit_0.0105/rep_0/`
+This runs to completion but it looks like codeml is not actually
+running!!
+```
+sed 's#seqfile.txt#sample_aln.phylip#g' < codeml.ctl > build/empiricalvalues_homoresidue/fit_0.0105/rep_0/gen_5000/codeml.ctl
+scons: done building targets.
+```
+This may be because the `codeml` dependencies are not coirrectly
+specified in the SConstruct file.  Take a look at those...
+
+```
+@w.add_target_with_env(env)
+def results(env, outdir, c):
+    return env.Command(os.path.join(outdir, 'results.txt'),
+                       c['config'],
+                       'srun --time=30 --chdir=${OUTDIR} codeml ${SOURCE.file}'
+                       )[0]
+```
+Oh yeah, that's not right.  The codeml command only depends on the
+config file, but that is hardly the complete set of dependencies for
+codeml.  The codeml config file points to a tree file and a fasta file, so
+those need to be in the dependency lists too.
+I'm sure the rule for building config file itself depends on those
+input files, but the same config file will be generated for any fasta
+and tree file combination.  We must explicitly carry those
+dependencies forward to anything that depends on this config file.
+
+Sconstruct file fixed, bow running codeml
+```
+$ scons -n build/empiricalvalues_homoresidue/fit_0.0105/rep_0/
+scons: Reading SConscript files ...
+scons: done reading SConscript files.
+scons: Building targets ...
+srun --time=30 --chdir=build/empiricalvalues_homoresidue/fit_0.0105/rep_0/gen_20000 codeml codeml.ctl
+srun --time=30 --chdir=build/empiricalvalues_homoresidue/fit_0.0105/rep_0/gen_500 codeml codeml.ctl
+srun --time=30 --chdir=build/empiricalvalues_homoresidue/fit_0.0105/rep_0/gen_5000 codeml codeml.ctl
+```
+
+NB Completed.
+```
+real    79m40.007s
+user    0m9.127s
+sys     0m1.666s
+```
+
+While that is running go look at the set of sequences that `codeml` is
+being run on.  Are the sequences all identical?  Are they very closely
+related?
+
+Take a look at `sample_dedup.fa` which is the precursor for
+`sample_aln.phylip`.
+```
+$ seqmagick info sample_dedup.fa
+name            alignment    min_len   max_len   avg_len  num_seqs
+sample_dedup.fa TRUE             468       468    468.00        22
+```
+
+~~You need to adapt the genome diversity measure from santa-purifying to
+us on the samples from santa-dnds.~~
+
+No you don't - all we want to know if how many unique sequences we
+have in each generation.  We already have that in `sample_dedup.fa`
+
+```
+$ seqmagick info $(find build/empiricalvalues_homoresidue/fit_0.0105 -name sample_dedup.fa )
+ name                                                                         alignment    min_len   max_len   avg_len  num_seqs
+build/empiricalvalues_homoresidue/fit_0.0105/rep_0/gen_5000/sample_dedup.fa  TRUE             468       468    468.00        24
+build/empiricalvalues_homoresidue/fit_0.0105/rep_0/gen_20000/sample_dedup.fa TRUE             468       468    468.00        22
+build/empiricalvalues_homoresidue/fit_0.0105/rep_0/gen_500/sample_dedup.fa   TRUE             468       468    468.00        22
+build/empiricalvalues_homoresidue/fit_0.0105/rep_4/gen_5000/sample_dedup.fa  TRUE             468       468    468.00        27
+build/empiricalvalues_homoresidue/fit_0.0105/rep_4/gen_500/sample_dedup.fa   TRUE             468       468    468.00        23
+build/empiricalvalues_homoresidue/fit_0.0105/rep_4/gen_20000/sample_dedup.fa TRUE             468       468    468.00        23
+build/empiricalvalues_homoresidue/fit_0.0105/rep_1/gen_5000/sample_dedup.fa  TRUE             468       468    468.00        22
+build/empiricalvalues_homoresidue/fit_0.0105/rep_1/gen_20000/sample_dedup.fa TRUE             468       468    468.00        30
+build/empiricalvalues_homoresidue/fit_0.0105/rep_1/gen_500/sample_dedup.fa   TRUE             468       468    468.00        23
+build/empiricalvalues_homoresidue/fit_0.0105/rep_2/gen_5000/sample_dedup.fa  TRUE             468       468    468.00        20
+build/empiricalvalues_homoresidue/fit_0.0105/rep_2/gen_500/sample_dedup.fa   TRUE             468       468    468.00        31
+build/empiricalvalues_homoresidue/fit_0.0105/rep_2/gen_20000/sample_dedup.fa TRUE             468       468    468.00        26
+build/empiricalvalues_homoresidue/fit_0.0105/rep_3/gen_5000/sample_dedup.fa  TRUE             468       468    468.00        22
+build/empiricalvalues_homoresidue/fit_0.0105/rep_3/gen_20000/sample_dedup.fa TRUE             468       468    468.00        28
+build/empiricalvalues_homoresidue/fit_0.0105/rep_3/gen_500/sample_dedup.fa   TRUE             468       468    468.00        23
+```
+
+Those all look fine.  It doesn't look like there are any samples with
+unusually low sequence count.
+
+
+
+
+
 
 

@@ -58,7 +58,7 @@ w = SConsWrap(n, 'build', alias_environment=env)
 # adding aggregate for running build_graph.py
 w.add_aggregate('resultsList', list)
 
-w.add('mutationrate', ['2.5E-5'], create_dir=False)
+w.add('mutationrate', ['2.5E-5', '2.5E-3'], label_func=lambda n: 'mut_'+str(n))
 
 w.add('indel_model', ['noindel'], create_dir=False)
 
@@ -66,7 +66,7 @@ w.add('nseqs', [100], label_func=lambda n: 'N_'+str(n), create_dir=False)
 
 w.add('population', [1000], label_func=lambda p: 'pop_'+str(p), create_dir=False)
 
-w.add('selection_model', ['empiricalvalues_homoresidue', 'noselection', 'purifyingchem', 'empiricalvalues']) 
+w.add('selection_model', ['empiricalvalues_homoresidue', 'noselection', 'empiricalvalues']) # 'purifyingchem', 
 
 def fitness_range(c): # takes control dictionary
     # choose selection parameters based on selection_model value.
@@ -114,7 +114,7 @@ def santa_config(env, outdir, c):
 
 
 
-w.add('replicates', range(5), label_func=lambda r: 'rep_'+str(r))
+w.add('replicates', range(3), label_func=lambda r: 'rep_'+str(r))
 
 @w.add_target_with_env(env)
 def lineage(env, outdir, c):
@@ -124,7 +124,8 @@ def lineage(env, outdir, c):
                           # so need to change to output directory before execution.
                           Copy('${OUTDIR}/santa_config.xml', '${SOURCES[0]}'),
                           'srun --time=30 --chdir=${OUTDIR} java -mx512m -jar ${SOURCES[1]} -mutationrate=${mutationrate} -population=${population} -longevity=${LONGEVITY} -fitness=${fitness} santa_config.xml',
-                          Copy('${TARGET}', '${OUTDIR}/santa_out.fa')
+                          Wait('${OUTDIR}/santa_out.fa'),
+                          Move('${TARGET}', '${OUTDIR}/santa_out.fa')
                        ])[0]
 
 
@@ -164,7 +165,7 @@ def dedup(env, outdir, c):
         os.path.join(outdir, 'sample_dedup.fa'),
         [ c['sample'] ],
         [
-        'seqmagick convert --deduplicate-sequences ${SOURCES} ${TARGET}',
+        'seqmagick convert --deduplicate-sequences --head 20 ${SOURCES} ${TARGET}',
         'seqmagick info ${SOURCES} ${TARGET}'
         ])[0]
 
@@ -228,7 +229,7 @@ def config(env, outdir, c):
 @w.add_target_with_env(env)
 def results(env, outdir, c):
     return env.Command(os.path.join(outdir, 'results.txt'),
-                       c['config'],
+                       [c['config'],  c['nexus2newick'], c['fasta2phylip']],
                        'srun --time=30 --chdir=${OUTDIR} codeml ${SOURCE.file}'
                        )[0]
 

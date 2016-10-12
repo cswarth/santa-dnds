@@ -51,6 +51,7 @@
     <mutator>
       <nucleotideMutator>
 	<mutationRate>$mutationrate</mutationRate>
+	<transitionBias>2.0</transitionBias>
       </nucleotideMutator>
     </mutator>
     <replicator>
