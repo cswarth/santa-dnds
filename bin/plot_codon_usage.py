@@ -76,11 +76,14 @@ SynonymousCodons = {
     'TYR': ['TAT', 'TAC']
 }
 
-keys = [ 'CGA', 'CGC', 'CGG', 'CGT', 'AGG', 'AGA',
-         'CTT', 'ATG', 'AAG', 'AAA', 'ATC', 'AAC', 'ATA', 'CCT', 'ACT', 'AGC', 'ACA', 'CAT', 'AAT', 'ATT', 'CTG',
-         'CTA', 'CTC', 'CAC', 'ACG', 'CAA', 'AGT', 'CAG', 'CCG', 'CCC', 'TAT', 'GGT', 'TGT', 'CCA', 'TCT', 'GAT',
-         'TTT', 'TGC', 'GGG', 'TAG', 'GGA', 'TAA', 'GGC', 'TAC', 'TTC', 'TCG', 'TTA', 'TTG', 'TCC', 'GAA', 'TCA',
-         'GCA', 'GTA', 'GCC', 'GTC', 'GCG', 'GTG', 'GAG', 'GTT', 'GCT', 'ACC', 'TGA', 'GAC', 'TGG' ]
+# order dict keys so synonymous codons for Arginine appear first.
+key = SynonymousCodons['ARG'] + [k for k in CodonsDict.keys() if k not in SynonymousCodons['ARG']]
+
+# keys = [ 'CGA', 'CGC', 'CGG', 'CGT', 'AGG', 'AGA',
+#          'CTT', 'ATG', 'AAG', 'AAA', 'ATC', 'AAC', 'ATA', 'CCT', 'ACT', 'AGC', 'ACA', 'CAT', 'AAT', 'ATT', 'CTG',
+#          'CTA', 'CTC', 'CAC', 'ACG', 'CAA', 'AGT', 'CAG', 'CCG', 'CCC', 'TAT', 'GGT', 'TGT', 'CCA', 'TCT', 'GAT',
+#          'TTT', 'TGC', 'GGG', 'TAG', 'GGA', 'TAA', 'GGC', 'TAC', 'TTC', 'TCG', 'TTA', 'TTG', 'TCC', 'GAA', 'TCA',
+#          'GCA', 'GTA', 'GCC', 'GTC', 'GCG', 'GTG', 'GAG', 'GTT', 'GCT', 'ACC', 'TGA', 'GAC', 'TGG' ]
 
 def count_codons(handle):
     # make the codon dictionary local
@@ -136,7 +139,7 @@ def main(argv=sys.argv[1:]):
                                    color="aqua" if s['omega'] < 999 else 'red',
                                    width=1.5),
                                ),
-                      opacity=0.6)
+                      opacity=0.6, hoverinfo='none')
         return trace
 
     # Read the result file
@@ -145,13 +148,14 @@ def main(argv=sys.argv[1:]):
     # normal should be in on color, bad in another.
     # Name each trace after the file it came from plus the dnds value
     df = pd.read_csv("build/results.csv")
-    print(df)
+
     df = df.sort_values(['omega'], ascending=[True])
     df = df.dropna(axis=0, how='any')
     traces = df.apply(mkBarPlot, axis=1)
 
     layout = go.Layout(title='Codon usage according to dN/dS ratio',
-                        barmode='group')
+                        barmode='group',
+                        bargroupgap=0.01)
     fig = go.Figure(data=list(traces), layout=layout)
 
     url = plotly.offline.plot(fig, show_link=False, auto_open=False)
